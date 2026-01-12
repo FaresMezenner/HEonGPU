@@ -100,6 +100,17 @@ namespace heongpu
          * @return int Depth level of the plaintext.
          */
         inline int depth() const noexcept { return depth_; }
+        
+        /**
+         * @brief Sets the depth level of the plaintext.
+         *
+         * This is needed for advanced CKKS operations like SlotsToCoeffs
+         * where plaintexts need to match the ciphertext's current depth
+         * after rescaling operations.
+         *
+         * @param new_depth The depth level to set.
+         */
+        inline void set_depth(int new_depth) noexcept { depth_ = new_depth; }
 
         /**
          * @brief Returns the scaling factor used for encoding in CKKS scheme.
