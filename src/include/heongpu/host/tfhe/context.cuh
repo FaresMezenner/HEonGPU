@@ -34,6 +34,29 @@ namespace heongpu
         HEContext();
 
         // HEContext() = default;
+        
+        // Public getter methods for TFHE parameters
+        // Added to support PBS operations and external access
+        int get_n() const { return n_; }                // LWE dimension
+        int get_ring_size() const { return N_; }        // Ring dimension (N)
+        int get_N() const { return N_; }                // Alias for ring dimension
+        int get_k() const { return k_; }                // Number of TLWE polynomials
+        int get_bk_l() const { return bk_l_; }          // Decomposition length
+        int get_bk_bg_bit() const { return bk_bg_bit_; } // Decomposition base bits
+        int get_ks_base_bit() const { return ks_base_bit_; }
+        int get_ks_length() const { return ks_length_; }
+        double get_ks_stdev() const { return ks_stdev_; }
+        double get_bk_stdev() const { return bk_stdev_; }
+        double get_max_stdev() const { return max_stdev_; }
+        int get_half_bg() const { return half_bg_; }
+        int get_mask_mod() const { return mask_mod_; }
+        int get_offset() const { return offset_; }
+        const Modulus64& get_prime() const { return prime_; }
+        
+        // NTT table getters for PBS operations
+        const DeviceVector<Root64>& get_ntt_table() const { return *ntt_table_; }
+        const DeviceVector<Root64>& get_intt_table() const { return *intt_table_; }
+        const Ninverse64& get_n_inverse() const { return n_inverse_; }
 
       private:
         const scheme_type scheme_ = scheme_type::tfhe;

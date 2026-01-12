@@ -91,6 +91,101 @@ namespace heongpu
             return secret_key_generated_;
         }
 
+        // =========================================================================
+        // L2R Scheme Switching Integration Methods
+        // =========================================================================
+        // These methods provide access to internal LWE/TLWE key data for
+        // cross-scheme operations. Added for L2R (TFHE→CKKS) scheme switching.
+        // NOTE: This is a LOCAL MODIFICATION for scheme_switching integration.
+
+        /**
+         * @brief Get pointer to LWE secret key data on device.
+         * @return Pointer to device memory containing LWE key coefficients.
+         */
+        __host__ int32_t* lwe_key_data() noexcept
+        {
+            return lwe_key_device_location_.data();
+        }
+
+        /**
+         * @brief Get const pointer to LWE secret key data on device.
+         */
+        __host__ const int32_t* lwe_key_data() const noexcept
+        {
+            return lwe_key_device_location_.data();
+        }
+
+        /**
+         * @brief Get pointer to TLWE secret key data on device.
+         * @return Pointer to device memory containing TLWE key coefficients.
+         */
+        __host__ int32_t* tlwe_key_data() noexcept
+        {
+            return tlwe_key_device_location_.data();
+        }
+
+        /**
+         * @brief Get const pointer to TLWE secret key data on device.
+         */
+        __host__ const int32_t* tlwe_key_data() const noexcept
+        {
+            return tlwe_key_device_location_.data();
+        }
+
+        /**
+         * @brief Copy LWE secret key to host vector.
+         * @param out Output vector (will be resized to n_)
+         * @param stream CUDA stream for async copy
+         */
+        __host__ void get_lwe_key(std::vector<int32_t>& out,
+                                  cudaStream_t stream = cudaStreamDefault) const
+        {
+            out.resize(n_);
+            if (storage_type_ == storage_type::DEVICE)
+            {
+                cudaMemcpyAsync(out.data(), lwe_key_device_location_.data(),
+                               n_ * sizeof(int32_t), cudaMemcpyDeviceToHost, stream);
+                cudaStreamSynchronize(stream);
+            }
+            else
+            {
+                std::copy_n(lwe_key_host_location_.data(), n_, out.begin());
+            }
+        }
+
+        /**
+         * @brief Copy TLWE secret key to host vector.
+         * @param out Output vector (will be resized to N_)
+         * @param stream CUDA stream for async copy
+         */
+        __host__ void get_tlwe_key(std::vector<int32_t>& out,
+                                   cudaStream_t stream = cudaStreamDefault) const
+        {
+            out.resize(N_);
+            if (storage_type_ == storage_type::DEVICE)
+            {
+                cudaMemcpyAsync(out.data(), tlwe_key_device_location_.data(),
+                               N_ * sizeof(int32_t), cudaMemcpyDeviceToHost, stream);
+                cudaStreamSynchronize(stream);
+            }
+            else
+            {
+                std::copy_n(tlwe_key_host_location_.data(), N_, out.begin());
+            }
+        }
+
+        /**
+         * @brief Get LWE dimension (n).
+         */
+        __host__ int lwe_dimension() const noexcept { return n_; }
+
+        /**
+         * @brief Get TLWE dimension (N).
+         */
+        __host__ int tlwe_dimension() const noexcept { return N_; }
+
+        // =========================================================================
+
         Secretkey() = default;
 
         /**

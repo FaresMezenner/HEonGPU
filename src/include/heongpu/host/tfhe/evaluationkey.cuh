@@ -89,6 +89,61 @@ namespace heongpu
         {
             return boot_key_generated_;
         }
+        
+        // ========================================================================
+        // PBS Integration Methods
+        // Added for programmable bootstrapping support
+        // ========================================================================
+        
+        /**
+         * @brief Get pointer to bootstrapping key data on device.
+         * 
+         * @return Pointer to device memory containing bootstrapping key
+         */
+        __host__ const uint64_t* boot_key_data() const noexcept
+        {
+            return boot_key_device_location_.data();
+        }
+        
+        /**
+         * @brief Get pointer to key switching key 'a' data on device.
+         * 
+         * @return Pointer to device memory containing key switching key 'a'
+         */
+        __host__ const int32_t* switch_key_a_data() const noexcept
+        {
+            return switch_key_device_location_a_.data();
+        }
+        
+        /**
+         * @brief Get pointer to key switching key 'b' data on device.
+         * 
+         * @return Pointer to device memory containing key switching key 'b'
+         */
+        __host__ const int32_t* switch_key_b_data() const noexcept
+        {
+            return switch_key_device_location_b_.data();
+        }
+        
+        /**
+         * @brief Get bootstrapping key base bit.
+         */
+        inline int get_bk_base_bit() const noexcept { return bk_base_bit_; }
+        
+        /**
+         * @brief Get bootstrapping key length.
+         */
+        inline int get_bk_length() const noexcept { return bk_length_; }
+        
+        /**
+         * @brief Get key switching base bit.
+         */
+        inline int get_ks_base_bit() const noexcept { return ks_base_bit_; }
+        
+        /**
+         * @brief Get key switching length.
+         */
+        inline int get_ks_length() const noexcept { return ks_length_; }
 
         Bootstrappingkey() = default;
 

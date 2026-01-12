@@ -35,9 +35,14 @@ namespace heongpu
 
         std::uniform_int_distribution<uint64_t> dist64(0, UINT64_MAX);
         cuda_seed = dist64(rng);
-        cudaMalloc(&cuda_rng, n_ * sizeof(curandState));
-
+        
+        // BUG FIX: Allocate enough curandStates for total_state, not n_
+        // The original code allocated n_ * sizeof(curandState) which is too small
+        // when total_state = 512*32 = 16384 and n_ = 512 (LWE dimension).
+        // This caused out-of-bounds writes in initialize_random_states_kernel.
         total_state = 512 * 32;
+        cudaMalloc(&cuda_rng, total_state * sizeof(curandState));
+
         initialize_random_states_kernel<<<((total_state + 511) >> 9), 512>>>(
             cuda_rng, cuda_seed, total_state);
     }
@@ -115,7 +120,14 @@ namespace heongpu
 
     __host__ HEEncryptor<Scheme::TFHE>::~HEEncryptor()
     {
-        cudaFree(cuda_rng);
+        // Synchronize device before freeing to ensure all async operations
+        // using cuda_rng have completed. This prevents heap corruption during
+        // program cleanup when multiple encryptors are destroyed.
+        if (cuda_rng != nullptr) {
+            cudaDeviceSynchronize();
+            cudaFree(cuda_rng);
+            cuda_rng = nullptr;
+        }
     }
 
 } // namespace heongpu

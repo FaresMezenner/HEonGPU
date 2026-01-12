@@ -103,6 +103,175 @@ namespace heongpu
          */
         inline int size() const noexcept { return shape_; }
 
+        // ========================================================================
+        // R2L Scheme Switching Integration Methods
+        // Added for CKKS->TFHE scheme switching support
+        // These methods allow external code to populate TFHE ciphertexts
+        // with LWE data generated from CKKS ciphertext conversion.
+        // ========================================================================
+
+        /**
+         * @brief Set LWE ciphertext data from host arrays.
+         * 
+         * This method allows populating the TFHE ciphertext with externally
+         * generated LWE data, such as from R2L (CKKS to TFHE) scheme switching.
+         * 
+         * @param a_data Pointer to the LWE 'a' vector data (n * num_lwe elements)
+         * @param b_data Pointer to the LWE 'b' values (num_lwe elements)
+         * @param num_lwe Number of LWE ciphertexts being set
+         * @param stream CUDA stream for async operations
+         */
+        __host__ void set_lwe_data(const int32_t* a_data, 
+                                   const int32_t* b_data,
+                                   int num_lwe,
+                                   cudaStream_t stream = cudaStreamDefault)
+        {
+            shape_ = num_lwe;
+            size_t a_size = static_cast<size_t>(n_) * num_lwe;
+            
+            // Allocate and copy 'a' data
+            a_device_location_.resize(a_size, stream);
+            cudaMemcpyAsync(a_device_location_.data(), a_data,
+                           a_size * sizeof(int32_t),
+                           cudaMemcpyHostToDevice, stream);
+            
+            // Allocate and copy 'b' data
+            b_device_location_.resize(num_lwe, stream);
+            cudaMemcpyAsync(b_device_location_.data(), b_data,
+                           num_lwe * sizeof(int32_t),
+                           cudaMemcpyHostToDevice, stream);
+            
+            storage_type_ = storage_type::DEVICE;
+            ciphertext_generated_ = true;
+            
+            // Sync to ensure data is copied
+            cudaStreamSynchronize(stream);
+        }
+
+        /**
+         * @brief Set LWE ciphertext data from device arrays.
+         * 
+         * This method allows populating the TFHE ciphertext with externally
+         * generated LWE data already on GPU, such as from GPU-accelerated
+         * R2L scheme switching.
+         * 
+         * @param a_device Pointer to device LWE 'a' vector data (n * num_lwe elements)
+         * @param b_device Pointer to device LWE 'b' values (num_lwe elements)
+         * @param num_lwe Number of LWE ciphertexts being set
+         * @param stream CUDA stream for async operations
+         */
+        __host__ void set_lwe_data_device(const int32_t* a_device, 
+                                          const int32_t* b_device,
+                                          int num_lwe,
+                                          cudaStream_t stream = cudaStreamDefault)
+        {
+            shape_ = num_lwe;
+            size_t a_size = static_cast<size_t>(n_) * num_lwe;
+            
+            // Allocate and copy 'a' data (device to device)
+            a_device_location_.resize(a_size, stream);
+            cudaMemcpyAsync(a_device_location_.data(), a_device,
+                           a_size * sizeof(int32_t),
+                           cudaMemcpyDeviceToDevice, stream);
+            
+            // Allocate and copy 'b' data (device to device)
+            b_device_location_.resize(num_lwe, stream);
+            cudaMemcpyAsync(b_device_location_.data(), b_device,
+                           num_lwe * sizeof(int32_t),
+                           cudaMemcpyDeviceToDevice, stream);
+            
+            storage_type_ = storage_type::DEVICE;
+            ciphertext_generated_ = true;
+        }
+
+        /**
+         * @brief Get pointer to the LWE 'a' vector data on device.
+         * 
+         * @return Pointer to device memory containing LWE 'a' vectors
+         */
+        __host__ int32_t* a_data() noexcept 
+        { 
+            return a_device_location_.data(); 
+        }
+
+        /**
+         * @brief Get const pointer to the LWE 'a' vector data on device.
+         * 
+         * @return Const pointer to device memory containing LWE 'a' vectors
+         */
+        __host__ const int32_t* a_data() const noexcept 
+        { 
+            return a_device_location_.data(); 
+        }
+
+        /**
+         * @brief Get pointer to the LWE 'b' values on device.
+         * 
+         * @return Pointer to device memory containing LWE 'b' values
+         */
+        __host__ int32_t* b_data() noexcept 
+        { 
+            return b_device_location_.data(); 
+        }
+
+        /**
+         * @brief Get const pointer to the LWE 'b' values on device.
+         * 
+         * @return Const pointer to device memory containing LWE 'b' values
+         */
+        __host__ const int32_t* b_data() const noexcept 
+        { 
+            return b_device_location_.data(); 
+        }
+
+        /**
+         * @brief Copy LWE data to host vectors.
+         * 
+         * @param a_out Output vector for 'a' data (will be resized)
+         * @param b_out Output vector for 'b' data (will be resized)
+         * @param stream CUDA stream for async operations
+         */
+        __host__ void get_lwe_data(std::vector<int32_t>& a_out,
+                                   std::vector<int32_t>& b_out,
+                                   cudaStream_t stream = cudaStreamDefault) const
+        {
+            size_t a_size = static_cast<size_t>(n_) * shape_;
+            a_out.resize(a_size);
+            b_out.resize(shape_);
+            
+            if (storage_type_ == storage_type::DEVICE)
+            {
+                cudaMemcpyAsync(a_out.data(), a_device_location_.data(),
+                               a_size * sizeof(int32_t),
+                               cudaMemcpyDeviceToHost, stream);
+                cudaMemcpyAsync(b_out.data(), b_device_location_.data(),
+                               shape_ * sizeof(int32_t),
+                               cudaMemcpyDeviceToHost, stream);
+                cudaStreamSynchronize(stream);
+            }
+            else
+            {
+                std::memcpy(a_out.data(), a_host_location_.data(),
+                           a_size * sizeof(int32_t));
+                std::memcpy(b_out.data(), b_host_location_.data(),
+                           shape_ * sizeof(int32_t));
+            }
+        }
+
+        /**
+         * @brief Check if ciphertext has been initialized with data.
+         * 
+         * @return true if ciphertext contains valid LWE data
+         */
+        __host__ bool is_initialized() const noexcept 
+        { 
+            return ciphertext_generated_; 
+        }
+
+        // ========================================================================
+        // End R2L Integration Methods
+        // ========================================================================
+
         Ciphertext() = default;
 
         Ciphertext(const Ciphertext& copy)
