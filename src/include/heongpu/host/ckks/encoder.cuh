@@ -373,6 +373,56 @@ namespace heongpu
         }
 
         /**
+         * @brief Extracts raw polynomial coefficients from a plaintext.
+         *
+         * This method performs INTT + CRT reconstruction WITHOUT applying the
+         * special FFT (canonical embedding). This is essential for R2L
+         * (RLWE-to-LWE) scheme switching where we need raw coefficient values
+         * at specific positions, not slot values.
+         *
+         * Key Differences from decode():
+         * - Returns N coefficients (not N/2 slots)
+         * - Does NOT apply the canonical embedding inverse (special FFT)
+         * - Does NOT apply bit-reversal permutation
+         * - Outputs raw polynomial coefficients in coefficient order
+         *
+         * After SlotsToCoeffs (S2C) + INTT, the relationship is:
+         *   coefficient[bit_reverse(i, log_slots)] = slot_value[i]
+         *
+         * Use case: R2L extracts LWE ciphertexts from these coefficient positions.
+         *
+         * @param coefficients Vector where the raw coefficients will be stored (size N)
+         * @param plain Plaintext object (should be in NTT form, INTT applied internally)
+         */
+        __host__ void
+        get_coefficients(std::vector<double>& coefficients, Plaintext<Scheme::CKKS> plain,
+                         const ExecutionOptions& options = ExecutionOptions())
+        {
+            input_storage_manager(
+                plain,
+                [&](Plaintext<Scheme::CKKS> plain_)
+                { get_coefficients_ckks(coefficients, plain_, options.stream_); },
+                options, false);
+        }
+
+        /**
+         * @brief Extracts raw polynomial coefficients from a plaintext (HostVector version).
+         *
+         * @param coefficients HostVector where the raw coefficients will be stored (size N)
+         * @param plain Plaintext object (should be in NTT form, INTT applied internally)
+         */
+        __host__ void
+        get_coefficients(HostVector<double>& coefficients, Plaintext<Scheme::CKKS> plain,
+                         const ExecutionOptions& options = ExecutionOptions())
+        {
+            input_storage_manager(
+                plain,
+                [&](Plaintext<Scheme::CKKS> plain_)
+                { get_coefficients_ckks(coefficients, plain_, options.stream_); },
+                options, false);
+        }
+
+        /**
          * @brief Returns the number of slots.
          *
          * @return int Number of slots.
@@ -438,6 +488,16 @@ namespace heongpu
         __host__ void decode_ckks(HostVector<Complex64>& message,
                                   Plaintext<Scheme::CKKS>& plain,
                                   const cudaStream_t stream);
+
+        //
+
+        __host__ void get_coefficients_ckks(std::vector<double>& coefficients,
+                                            Plaintext<Scheme::CKKS>& plain,
+                                            const cudaStream_t stream);
+
+        __host__ void get_coefficients_ckks(HostVector<double>& coefficients,
+                                            Plaintext<Scheme::CKKS>& plain,
+                                            const cudaStream_t stream);
 
       private:
         scheme_type scheme_;

@@ -351,4 +351,110 @@ namespace heongpu
         complex_message[order] = result_c;
     }
 
+    /**
+     * @brief Kernel for extracting raw polynomial coefficients (INTT + CRT, NO FFT)
+     * 
+     * This kernel is similar to encode_kernel_compose but:
+     * 1. Processes ALL N coefficients (not just N/2 slots)
+     * 2. Does NOT apply bit-reversal permutation
+     * 3. Outputs real coefficients directly (not complex values)
+     * 
+     * This is essential for R2L (RLWE-to-LWE) scheme switching where we need
+     * to extract LWE ciphertexts from specific coefficient positions.
+     * 
+     * After SlotsToCoeffs + INTT:
+     *   coefficient[bit_reverse(i, log_slots)] = slot_value[i]
+     */
+    __global__ void coefficient_compose_kernel(
+        double* output, Data64* plaintext, Modulus64* modulus,
+        Data64* Mi_inv, Data64* Mi, Data64* upper_half_threshold,
+        Data64* decryption_modulus, int coeff_modulus_count, double scale,
+        double two_pow_64, int n_power)
+    {
+        int idx = blockIdx.x * blockDim.x + threadIdx.x; // Process ALL N coefficients
+        
+        // Check bounds - we process the full polynomial (N coefficients)
+        int n = 1 << n_power;
+        if (idx >= n) return;
+        
+        double inv_scale = double(1.0) / scale;
+        double two_pow_64_reg = two_pow_64;
+
+        Data64 compose_result[50]; // TODO: Define size as global variable
+        Data64 big_integer_result[50]; // TODO: Define size as global variable
+
+        biginteger::set_zero(compose_result, coeff_modulus_count);
+
+        // CRT reconstruction for coefficient idx
+        #pragma unroll
+        for (int i = 0; i < coeff_modulus_count; i++)
+        {
+            // Access coefficient idx under modulus i
+            Data64 base = plaintext[idx + (i << n_power)];
+            Data64 temp = OPERATOR_GPU_64::mult(base, Mi_inv[i], modulus[i]);
+
+            biginteger::multiply(Mi + (i * coeff_modulus_count),
+                                 coeff_modulus_count, temp, big_integer_result,
+                                 coeff_modulus_count);
+
+            int carry = biginteger::add_inplace(
+                compose_result, big_integer_result, coeff_modulus_count);
+
+            bool check = biginteger::is_greater_or_equal(
+                compose_result, decryption_modulus, coeff_modulus_count);
+
+            if (check)
+            {
+                biginteger::sub2(compose_result, decryption_modulus,
+                                 coeff_modulus_count, compose_result);
+            }
+        }
+
+        double result = double(0.0);
+
+        // Handle centered representation (values >= Q/2 are negative)
+        bool is_negative = biginteger::is_greater_or_equal(
+            compose_result, upper_half_threshold, coeff_modulus_count);
+
+        if (is_negative)
+        {
+            // Negative value: result = (compose_result - decryption_modulus) / scale
+            double scaled_two_pow_64 = inv_scale;
+            for (std::size_t j = 0; j < coeff_modulus_count;
+                 j++, scaled_two_pow_64 *= two_pow_64_reg)
+            {
+                if (compose_result[j] > decryption_modulus[j])
+                {
+                    auto diff = compose_result[j] - decryption_modulus[j];
+                    result +=
+                        diff ? static_cast<double>(diff) * scaled_two_pow_64
+                             : 0.0;
+                }
+                else
+                {
+                    auto diff = decryption_modulus[j] - compose_result[j];
+                    result -=
+                        diff ? static_cast<double>(diff) * scaled_two_pow_64
+                             : 0.0;
+                }
+            }
+        }
+        else
+        {
+            // Positive value: result = compose_result / scale
+            double scaled_two_pow_64 = inv_scale;
+            for (std::size_t j = 0; j < coeff_modulus_count;
+                 j++, scaled_two_pow_64 *= two_pow_64_reg)
+            {
+                auto curr_coeff = compose_result[j];
+                result += curr_coeff ? static_cast<double>(curr_coeff) *
+                                            scaled_two_pow_64
+                                     : 0.0;
+            }
+        }
+
+        // Store directly at coefficient index (NO bit-reversal, NO FFT)
+        output[idx] = result;
+    }
+
 } // namespace heongpu

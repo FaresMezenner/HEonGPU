@@ -46,5 +46,39 @@ namespace heongpu
         Data64* decryption_modulus, int coeff_modulus_count, double scale,
         double two_pow_64, int* reverse_order, int n_power);
 
+    /**
+     * @brief Kernel for extracting raw polynomial coefficients (INTT + CRT, NO FFT)
+     * 
+     * This kernel performs CRT reconstruction to get raw polynomial coefficients
+     * without applying the special FFT (canonical embedding). This is essential
+     * for R2L (RLWE-to-LWE) scheme switching where we need raw coefficient values
+     * at specific positions, not slot values.
+     * 
+     * Key Differences from encode_kernel_compose:
+     * - Processes N threads (all coefficients) instead of N/2 threads (slots)
+     * - Does NOT apply bit-reversal permutation
+     * - Outputs real coefficients, not complex slot values
+     * 
+     * Memory Layout:
+     * plaintext[idx + (i << n_power)] contains coefficient idx under modulus i
+     * 
+     * @param output Raw polynomial coefficients (size N)
+     * @param plaintext Plaintext data after INTT (RNS representation)
+     * @param modulus RNS moduli
+     * @param Mi_inv CRT inverse components
+     * @param Mi CRT multiplier components
+     * @param upper_half_threshold Threshold for centered representation
+     * @param decryption_modulus Full CRT modulus
+     * @param coeff_modulus_count Number of RNS moduli
+     * @param scale CKKS scale factor (for division)
+     * @param two_pow_64 Constant 2^64 for conversion
+     * @param n_power log2(N) for indexing
+     */
+    __global__ void coefficient_compose_kernel(
+        double* output, Data64* plaintext, Modulus64* modulus,
+        Data64* Mi_inv, Data64* Mi, Data64* upper_half_threshold,
+        Data64* decryption_modulus, int coeff_modulus_count, double scale,
+        double two_pow_64, int n_power);
+
 } // namespace heongpu
 #endif // HEONGPU_ENCODING_H

@@ -611,4 +611,132 @@ namespace heongpu
         HEONGPU_CUDA_CHECK(cudaGetLastError());
     }
 
+    //=========================================================================
+    // get_coefficients_ckks: Raw coefficient extraction (INTT + CRT, NO FFT)
+    //=========================================================================
+
+    __host__ void
+    HEEncoder<Scheme::CKKS>::get_coefficients_ckks(std::vector<double>& coefficients,
+                                                   Plaintext<Scheme::CKKS>& plain,
+                                                   const cudaStream_t stream)
+    {
+        int current_modulus_count = Q_size_ - plain.depth_;
+
+        // Output buffer for ALL N coefficients (not just N/2 slots)
+        DeviceVector<double> coeffs_gpu(n, stream);
+
+        // Temporary buffer for INTT output
+        DeviceVector<Data64> temp_plain(n * current_modulus_count, stream);
+
+        // Step 1: Apply INTT to convert from NTT form to coefficient form
+        gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
+            .n_power = n_power,
+            .ntt_type = gpuntt::INVERSE,
+            .ntt_layout = gpuntt::PerPolynomial,
+            .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
+            .zero_padding = false,
+            .mod_inverse = n_inverse_->data(),
+            .stream = stream};
+
+        gpuntt::GPU_INTT(plain.data(), temp_plain.data(), intt_table_->data(),
+                         modulus_->data(), cfg_intt, current_modulus_count,
+                         current_modulus_count);
+
+        // Calculate CRT table offsets based on depth
+        int counter = Q_size_;
+        int location1 = 0;
+        int location2 = 0;
+        for (int i = 0; i < plain.depth_; i++)
+        {
+            location1 += counter;
+            location2 += (counter * counter);
+            counter--;
+        }
+
+        // Step 2: CRT reconstruction for ALL N coefficients (NO FFT, NO bit-reversal)
+        // Grid size must cover all N coefficients, not just N/2 slots
+        int grid_size = (n + 255) / 256;
+        coefficient_compose_kernel<<<dim3(grid_size, 1, 1), 256, 0, stream>>>(
+            coeffs_gpu.data(), temp_plain.data(), modulus_->data(),
+            Mi_inv_->data() + location1, Mi_->data() + location2,
+            upper_half_threshold_->data() + location1,
+            decryption_modulus_->data() + location1, current_modulus_count,
+            plain.scale_, two_pow_64, n_power);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        // Resize output to N coefficients (not N/2 slots!)
+        coefficients.resize(n);
+
+        // Copy coefficients back to host
+        cudaMemcpyAsync(coefficients.data(), coeffs_gpu.data(),
+                        n * sizeof(double), cudaMemcpyDeviceToHost,
+                        stream);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        // Synchronize to ensure data is ready
+        cudaStreamSynchronize(stream);
+    }
+
+    __host__ void
+    HEEncoder<Scheme::CKKS>::get_coefficients_ckks(HostVector<double>& coefficients,
+                                                   Plaintext<Scheme::CKKS>& plain,
+                                                   const cudaStream_t stream)
+    {
+        int current_modulus_count = Q_size_ - plain.depth_;
+
+        // Output buffer for ALL N coefficients (not just N/2 slots)
+        DeviceVector<double> coeffs_gpu(n, stream);
+
+        // Temporary buffer for INTT output
+        DeviceVector<Data64> temp_plain(n * current_modulus_count, stream);
+
+        // Step 1: Apply INTT to convert from NTT form to coefficient form
+        gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
+            .n_power = n_power,
+            .ntt_type = gpuntt::INVERSE,
+            .ntt_layout = gpuntt::PerPolynomial,
+            .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
+            .zero_padding = false,
+            .mod_inverse = n_inverse_->data(),
+            .stream = stream};
+
+        gpuntt::GPU_INTT(plain.data(), temp_plain.data(), intt_table_->data(),
+                         modulus_->data(), cfg_intt, current_modulus_count,
+                         current_modulus_count);
+
+        // Calculate CRT table offsets based on depth
+        int counter = Q_size_;
+        int location1 = 0;
+        int location2 = 0;
+        for (int i = 0; i < plain.depth_; i++)
+        {
+            location1 += counter;
+            location2 += (counter * counter);
+            counter--;
+        }
+
+        // Step 2: CRT reconstruction for ALL N coefficients (NO FFT, NO bit-reversal)
+        // Grid size must cover all N coefficients, not just N/2 slots
+        int grid_size = (n + 255) / 256;
+        coefficient_compose_kernel<<<dim3(grid_size, 1, 1), 256, 0, stream>>>(
+            coeffs_gpu.data(), temp_plain.data(), modulus_->data(),
+            Mi_inv_->data() + location1, Mi_->data() + location2,
+            upper_half_threshold_->data() + location1,
+            decryption_modulus_->data() + location1, current_modulus_count,
+            plain.scale_, two_pow_64, n_power);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        // Resize output to N coefficients (not N/2 slots!)
+        coefficients.resize(n);
+
+        // Copy coefficients back to host
+        cudaMemcpyAsync(coefficients.data(), coeffs_gpu.data(),
+                        n * sizeof(double), cudaMemcpyDeviceToHost,
+                        stream);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        // Synchronize to ensure data is ready
+        cudaStreamSynchronize(stream);
+    }
+
 } // namespace heongpu
