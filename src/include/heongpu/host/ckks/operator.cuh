@@ -222,7 +222,8 @@ namespace heongpu
                 {
                     input_storage_manager(
                         input2,
-                        [&](Plaintext<Scheme::CKKS>& input2_) {
+                        [&](Plaintext<Scheme::CKKS>& input2_)
+                        {
                             add_plain_ckks_inplace(input1_, input2_,
                                                    options.stream_);
                         },
@@ -404,7 +405,8 @@ namespace heongpu
                 {
                     input_storage_manager(
                         input2,
-                        [&](Plaintext<Scheme::CKKS>& input2_) {
+                        [&](Plaintext<Scheme::CKKS>& input2_)
+                        {
                             sub_plain_ckks_inplace(input1_, input2_,
                                                    options.stream_);
                         },
@@ -1370,8 +1372,7 @@ namespace heongpu
             }
 
             input_storage_manager(
-                input1,
-                [&](Ciphertext<Scheme::CKKS>& input1_)
+                input1, [&](Ciphertext<Scheme::CKKS>& input1_)
                 { rescale_inplace_ckks_leveled(input1_, options.stream_); },
                 options, true);
 
@@ -1495,8 +1496,7 @@ namespace heongpu
             }
 
             input_storage_manager(
-                input1,
-                [&](Plaintext<Scheme::CKKS>& input1_)
+                input1, [&](Plaintext<Scheme::CKKS>& input1_)
                 { mod_drop_ckks_plaintext_inplace(input1_, options.stream_); },
                 options, true);
         }
@@ -1519,8 +1519,7 @@ namespace heongpu
             }
 
             input_storage_manager(
-                input1,
-                [&](Ciphertext<Scheme::CKKS>& input1_)
+                input1, [&](Ciphertext<Scheme::CKKS>& input1_)
                 { mod_drop_ckks_leveled_inplace(input1_, options.stream_); },
                 options, true);
         }
@@ -2310,6 +2309,81 @@ namespace heongpu
             Galoiskey<Scheme::CKKS>& galois_key,
             Relinkey<Scheme::CKKS>& relin_key,
             const ExecutionOptions& options = ExecutionOptions());
+
+        /**
+         * @brief Public wrapper for solo_slot_to_coeff (SlotsToCoeffs
+         * transform)
+         *
+         * Transforms CKKS slot values into polynomial coefficients using the
+         * Vandermonde matrix multiplication. This is the first step in
+         * RLWE-to-LWE (R2L) scheme switching for TFHE bootstrapping.
+         *
+         * After this transform, the relationship between slots and coefficients
+         * is: coefficient[bit_reverse(i, log_slots)] = slot_value[i]
+         *
+         * CRITICAL: Input ciphertext must be at the correct depth level!
+         * The Vandermonde matrices are pre-encoded for a specific level:
+         *   - For REGULAR_BOOTSTRAPPING:
+         *       StoC_level_ = Q_size_ - CtoS_piece_ - taylor_number_ - 8
+         *       Required depth = Q_size_ - StoC_level_
+         *   - For SLIM_BOOTSTRAPPING:
+         *       StoC_level_ = 1 + StoC_piece_
+         *       Required depth = Q_size_ - StoC_level_
+         * Use mod_drop_inplace() to reach the correct depth before calling.
+         *
+         * Prerequisites:
+         * - Must call generate_bootstrapping_params() first to generate
+         *   V_matrixs_rotated_encoded_ and diags_matrices_bsgs_ matrices
+         * - Galois keys must be generated with bootstrapping_key_indexs()
+         *
+         * @param cipher Input ciphertext with slot values (at correct depth!)
+         * @param galois_key Galois key with required rotation indices
+         * @param options Execution options (stream, storage, etc.)
+         * @return Ciphertext with slot values moved to coefficient positions
+         *
+         * @throws std::invalid_argument if bootstrapping params not generated
+         */
+        __host__ Ciphertext<Scheme::CKKS> public_solo_slot_to_coeff(
+            Ciphertext<Scheme::CKKS>& cipher,
+            Galoiskey<Scheme::CKKS>& galois_key,
+            const ExecutionOptions& options = ExecutionOptions())
+        {
+            if (!boot_context_generated_)
+            {
+                throw std::invalid_argument(
+                    "solo_slot_to_coeff requires bootstrapping parameters! "
+                    "Call generate_bootstrapping_params() first.");
+            }
+            return HEOperator<Scheme::CKKS>::solo_slot_to_coeff(
+                cipher, galois_key, options);
+        }
+
+        /**
+         * @brief Public wrapper for solo_coeff_to_slot (CoeffsToSlots
+         * transform)
+         *
+         * Transforms polynomial coefficients back into CKKS slot values.
+         * This is the inverse of solo_slot_to_coeff.
+         *
+         * @param cipher Input ciphertext with values in coefficient positions
+         * @param galois_key Galois key with required rotation indices
+         * @param options Execution options
+         * @return Ciphertext with values moved to slot positions
+         */
+        __host__ Ciphertext<Scheme::CKKS> public_solo_coeff_to_slot(
+            Ciphertext<Scheme::CKKS>& cipher,
+            Galoiskey<Scheme::CKKS>& galois_key,
+            const ExecutionOptions& options = ExecutionOptions())
+        {
+            if (!boot_context_generated_)
+            {
+                throw std::invalid_argument(
+                    "solo_coeff_to_slot requires bootstrapping parameters! "
+                    "Call generate_bootstrapping_params() first.");
+            }
+            return HEOperator<Scheme::CKKS>::solo_coeff_to_slot(
+                cipher, galois_key, options);
+        }
     };
 
     /**
@@ -2351,8 +2425,7 @@ namespace heongpu
                 [&](Ciphertext<Scheme::CKKS>& input1_)
                 {
                     output_storage_manager(
-                        output,
-                        [&](Ciphertext<Scheme::CKKS>& output_)
+                        output, [&](Ciphertext<Scheme::CKKS>& output_)
                         { one_minus_cipher(input1_, output_, options_inner); },
                         options);
                 },
@@ -2376,10 +2449,9 @@ namespace heongpu
                     .set_initial_location(true);
 
             input_storage_manager(
-                input1,
-                [&](Ciphertext<Scheme::CKKS>& input1_)
-                { one_minus_cipher_inplace(input1_, options_inner); },
-                options, true);
+                input1, [&](Ciphertext<Scheme::CKKS>& input1_)
+                { one_minus_cipher_inplace(input1_, options_inner); }, options,
+                true);
         }
 
         /**
