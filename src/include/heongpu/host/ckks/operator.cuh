@@ -2384,6 +2384,30 @@ namespace heongpu
             return HEOperator<Scheme::CKKS>::solo_coeff_to_slot(
                 cipher, galois_key, options);
         }
+
+        /**
+         * @brief Public wrapper for mod_raise operation
+         *
+         * Raises a ciphertext from its current modulus level back to the full
+         * modulus chain (depth 0). This is the operation performed between
+         * S2C and C2S during bootstrapping.
+         *
+         * This enables testing the S2C → mod_raise → C2S round-trip:
+         *   1. Start with slot values at depth 22
+         *   2. S2C converts slots to coefficient form (depth ~25)
+         *   3. mod_raise brings back to depth 0
+         *   4. C2S converts coefficients back to slots
+         *   5. Verify recovered slots ≈ original slots
+         *
+         * @param cipher Input ciphertext (will be modified to depth 0)
+         * @param options Execution options
+         * @return Ciphertext at depth 0 with full modulus chain
+         *
+         * @throws std::invalid_argument if bootstrapping params not generated
+         */
+        __host__ Ciphertext<Scheme::CKKS>
+        public_mod_raise(Ciphertext<Scheme::CKKS>& cipher,
+                         const ExecutionOptions& options = ExecutionOptions());
     };
 
     /**

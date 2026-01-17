@@ -2733,7 +2733,7 @@ namespace heongpu
             old_stream); // TODO: Change copy and assign structure!
 
         int matrix_count = diags_matrices_bsgs_.size();
-        for (int m = (matrix_count - 1); - 1 < m; m--)
+        for (int m = (matrix_count - 1); -1 < m; m--)
         {
             int n1 = diags_matrices_bsgs_[m][0].size();
             int current_level = result.depth_;
@@ -2827,7 +2827,7 @@ namespace heongpu
             old_stream); // TODO: Change copy and assign structure!
 
         int matrix_count = diags_matrices_bsgs_.size();
-        for (int m = (matrix_count - 1); - 1 < m; m--)
+        for (int m = (matrix_count - 1); -1 < m; m--)
         {
             // int n1 = diags_matrices_bsgs_[m][0].size();
             int current_level = result.depth_;
@@ -2953,7 +2953,7 @@ namespace heongpu
             old_stream); // TODO: Change copy and assign structure!
 
         int matrix_count = diags_matrices_bsgs_.size();
-        for (int m = (matrix_count - 1); - 1 < m; m--)
+        for (int m = (matrix_count - 1); -1 < m; m--)
         {
             int n1 = diags_matrices_bsgs_[m][0].size();
             int current_level = result.depth_;
@@ -4447,8 +4447,7 @@ namespace heongpu
                     temp0_rotation + (current_decomp_count << n_power),
                     temp3_rotation, modulus_->data(),
                     base_change_matrix_D_to_Qtilda_leveled_
-                        ->
-                        operator[](first_cipher.depth_)
+                        ->operator[](first_cipher.depth_)
                         .data(),
                     Mi_inv_D_to_Qtilda_leveled_->operator[](first_cipher.depth_)
                         .data(),
@@ -4578,16 +4577,13 @@ namespace heongpu
                         temp0_rotation + (current_decomp_count << n_power),
                         temp3_rotation, modulus_->data(),
                         base_change_matrix_D_to_Qtilda_leveled_
-                            ->
-                            operator[](first_cipher.depth_)
+                            ->operator[](first_cipher.depth_)
                             .data(),
                         Mi_inv_D_to_Qtilda_leveled_
-                            ->
-                            operator[](first_cipher.depth_)
+                            ->operator[](first_cipher.depth_)
                             .data(),
                         prod_D_to_Qtilda_leveled_
-                            ->
-                            operator[](first_cipher.depth_)
+                            ->operator[](first_cipher.depth_)
                             .data(),
                         I_j_leveled_->operator[](first_cipher.depth_).data(),
                         I_location_leveled_->operator[](first_cipher.depth_)
@@ -6416,6 +6412,85 @@ namespace heongpu
         ciph_sin.scale_ = scale_boot_;
 
         return ciph_sin;
+    }
+
+    __host__ Ciphertext<Scheme::CKKS>
+    HEArithmeticOperator<Scheme::CKKS>::public_mod_raise(
+        Ciphertext<Scheme::CKKS>& cipher, const ExecutionOptions& options)
+    {
+        if (!boot_context_generated_)
+        {
+            throw std::invalid_argument(
+                "mod_raise requires bootstrapping parameters! "
+                "Call generate_bootstrapping_params() first.");
+        }
+
+        // CRITICAL: mod_raise_kernel only works with single RNS modulus input!
+        // The ciphertext must be at max depth (Q_size - 1) with exactly 1
+        // modulus.
+        int current_decomp_count = Q_size_ - cipher.depth_;
+        if (current_decomp_count != 1)
+        {
+            throw std::logic_error(
+                "public_mod_raise requires ciphertext at max depth (single "
+                "modulus)! "
+                "Current decomp_count = " +
+                std::to_string(current_decomp_count) +
+                ", expected 1. Use mod_drop_inplace to reach depth " +
+                std::to_string(Q_size_ - 1) + " first.");
+        }
+
+        ExecutionOptions options_inner =
+            ExecutionOptions()
+                .set_stream(options.stream_)
+                .set_storage_type(storage_type::DEVICE)
+                .set_initial_location(true);
+
+        gpuntt::ntt_rns_configuration<Data64> cfg_intt = {
+            .n_power = n_power,
+            .ntt_type = gpuntt::INVERSE,
+            .ntt_layout = gpuntt::PerPolynomial,
+            .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
+            .zero_padding = false,
+            .mod_inverse = n_inverse_->data(),
+            .stream = options.stream_};
+
+        gpuntt::ntt_rns_configuration<Data64> cfg_ntt = {
+            .n_power = n_power,
+            .ntt_type = gpuntt::FORWARD,
+            .ntt_layout = gpuntt::PerPolynomial,
+            .reduction_poly = gpuntt::ReductionPolynomial::X_N_plus,
+            .zero_padding = false,
+            .stream = options.stream_};
+
+        // Convert from NTT domain to coefficient domain (single modulus only)
+        DeviceVector<Data64> input_intt_poly(2 * n, options.stream_);
+        input_storage_manager(
+            cipher,
+            [&](Ciphertext<Scheme::CKKS>& cipher_)
+            {
+                gpuntt::GPU_INTT(cipher.data(), input_intt_poly.data(),
+                                 intt_table_->data(), modulus_->data(),
+                                 cfg_intt, 2, 1);
+            },
+            options, false);
+
+        // Create output ciphertext at depth 0 with full modulus chain
+        Ciphertext<Scheme::CKKS> c_raised =
+            operator_ciphertext(scale_boot_, options_inner.stream_);
+
+        // Raise modulus from single Q0 to full Q chain
+        mod_raise_kernel<<<dim3((n >> 8), Q_size_, 2), 256, 0,
+                           options_inner.stream_>>>(
+            input_intt_poly.data(), c_raised.data(), modulus_->data(), n_power);
+        HEONGPU_CUDA_CHECK(cudaGetLastError());
+
+        // Convert back to NTT domain
+        gpuntt::GPU_NTT_Inplace(c_raised.data(), ntt_table_->data(),
+                                modulus_->data(), cfg_ntt, 2 * Q_size_,
+                                Q_size_);
+
+        return c_raised;
     }
 
     HELogicOperator<Scheme::CKKS>::HELogicOperator(
