@@ -6476,12 +6476,16 @@ namespace heongpu
             options, false);
 
         // Create output ciphertext at depth 0 with full modulus chain
+        // Preserve the original scale from input ciphertext
         Ciphertext<Scheme::CKKS> c_raised =
-            operator_ciphertext(scale_boot_, options_inner.stream_);
+            operator_ciphertext(cipher.scale(), options_inner.stream_);
 
         // Raise modulus from single Q0 to full Q chain
-        mod_raise_kernel<<<dim3((n >> 8), Q_size_, 2), 256, 0,
-                           options_inner.stream_>>>(
+        // CRITICAL: Use mod_raise_kernel_v2 for proper centered reduction!
+        // mod_raise_kernel_v2 handles signed values correctly by using
+        // centered representation around q0/2
+        mod_raise_kernel_v2<<<dim3((n >> 8), Q_size_, 2), 256, 0,
+                              options_inner.stream_>>>(
             input_intt_poly.data(), c_raised.data(), modulus_->data(), n_power);
         HEONGPU_CUDA_CHECK(cudaGetLastError());
 
