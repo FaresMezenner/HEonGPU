@@ -2408,6 +2408,30 @@ namespace heongpu
         __host__ Ciphertext<Scheme::CKKS>
         public_mod_raise(Ciphertext<Scheme::CKKS>& cipher,
                          const ExecutionOptions& options = ExecutionOptions());
+
+        /**
+         * @brief Public wrapper for eval_mod (sine evaluation)
+         *
+         * Applies modular reduction using sine approximation.
+         * This corrects the phase shift introduced by mod_raise.
+         *
+         * The bootstrapping pipeline is:
+         *   mod_raise → C2S → eval_mod (sine) → S2C
+         *
+         * eval_mod uses Taylor/Chebyshev polynomial approximation to
+         * compute sin(2πx) which corrects the phase introduced by mod_raise.
+         *
+         * @param cipher Input ciphertext (after C2S, at depth ~4)
+         * @param relin_key Relinearization key for polynomial evaluation
+         * @param options Execution options
+         * @return Ciphertext with corrected values
+         *
+         * @throws std::invalid_argument if bootstrapping params not generated
+         */
+        __host__ Ciphertext<Scheme::CKKS>
+        public_eval_mod(Ciphertext<Scheme::CKKS>& cipher,
+                        Relinkey<Scheme::CKKS>& relin_key,
+                        const ExecutionOptions& options = ExecutionOptions());
     };
 
     /**

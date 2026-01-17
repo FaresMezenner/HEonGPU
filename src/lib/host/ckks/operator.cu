@@ -6497,6 +6497,22 @@ namespace heongpu
         return c_raised;
     }
 
+    __host__ Ciphertext<Scheme::CKKS>
+    HEArithmeticOperator<Scheme::CKKS>::public_eval_mod(
+        Ciphertext<Scheme::CKKS>& cipher, Relinkey<Scheme::CKKS>& relin_key,
+        const ExecutionOptions& options)
+    {
+        if (!boot_context_generated_)
+        {
+            throw std::invalid_argument(
+                "eval_mod requires bootstrapping parameters! "
+                "Call generate_bootstrapping_params() first.");
+        }
+
+        // Delegate to the parent class eval_mod implementation
+        return HEOperator<Scheme::CKKS>::eval_mod(cipher, relin_key, options);
+    }
+
     HELogicOperator<Scheme::CKKS>::HELogicOperator(
         HEContext<Scheme::CKKS>& context, HEEncoder<Scheme::CKKS>& encoder,
         double scale)
